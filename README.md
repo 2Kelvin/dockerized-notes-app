@@ -1,2 +1,3 @@
-# dockerized-note-app
-Implementing persistent storage for a dockerized notes app
+# Dockerized Notes App
+
+Implementing persistent storage for a Dockerized notes app
