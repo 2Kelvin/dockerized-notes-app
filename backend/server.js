@@ -41,3 +41,5 @@ app.post('/api/notes', (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// replace db with postgres and also include redis for caching
