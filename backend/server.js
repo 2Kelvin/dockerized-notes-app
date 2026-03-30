@@ -9,8 +9,8 @@ const PORT = 5000;
 app.use(cors());
 app.use(express.json());
 
-// 1. Point to the root data folder
-const DATA_DIR = path.join(__dirname, '..', 'data');
+// 1. Point to the data folder inside the backend directory
+const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'notes.json');
 
 // 2. Ensure the directory exists first
@@ -21,23 +21,34 @@ if (!fs.existsSync(DATA_DIR)) {
 
 // 3. Ensure the file exists
 if (!fs.existsSync(DATA_FILE)) {
-    console.log("Creating empty notes.json");
+    console.log("Creating empty notes.json at:", DATA_FILE);
     fs.writeFileSync(DATA_FILE, JSON.stringify([]));
 }
 
 // Get all notes
 app.get('/api/notes', (req, res) => {
-    const data = fs.readFileSync(DATA_FILE);
-    res.json(JSON.parse(data));
+    try {
+        const data = fs.readFileSync(DATA_FILE, 'utf8');
+        res.json(JSON.parse(data));
+    } catch (err) {
+        console.error("Error reading notes:", err);
+        res.status(500).json({ error: "Could not read notes" });
+    }
 });
 
 // Save a note
 app.post('/api/notes', (req, res) => {
-    const notes = JSON.parse(fs.readFileSync(DATA_FILE));
-    const newNote = { id: Date.now(), text: req.body.text };
-    notes.push(newNote);
-    fs.writeFileSync(DATA_FILE, JSON.stringify(notes, null, 2));
-    res.status(201).json(newNote);
+    try {
+        const data = fs.readFileSync(DATA_FILE, 'utf8');
+        const notes = JSON.parse(data);
+        const newNote = { id: Date.now(), text: req.body.text };
+        notes.push(newNote);
+        fs.writeFileSync(DATA_FILE, JSON.stringify(notes, null, 2));
+        res.status(201).json(newNote);
+    } catch (err) {
+        console.error("Error saving note:", err);
+        res.status(500).json({ error: "Could not save note" });
+    }
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
