@@ -1,56 +1,120 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const { Pool } = require('pg');
+const redis = require('redis');
 const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// 1. Point to the data folder inside the backend directory
-const DATA_DIR = path.join(__dirname, 'data');
-const DATA_FILE = path.join(DATA_DIR, 'notes.json');
+// 1. Postgres Setup
+const pool = new Pool({
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD,
+    port: process.env.DB_PORT,
+});
 
-// 2. Ensure the directory exists first
-if (!fs.existsSync(DATA_DIR)) {
-    console.log("Creating data directory at:", DATA_DIR);
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+// Helper to initialize table
+const initDb = async () => {
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id SERIAL PRIMARY KEY,
+      text TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+};
 
-// 3. Ensure the file exists
-if (!fs.existsSync(DATA_FILE)) {
-    console.log("Creating empty notes.json at:", DATA_FILE);
-    fs.writeFileSync(DATA_FILE, JSON.stringify([]));
-}
+// 2. Redis Setup
+const redisClient = redis.createClient({ url: process.env.REDIS_URL });
+redisClient.on('error', (err) => console.error('Redis Error', err));
 
-// Get all notes
-app.get('/api/notes', (req, res) => {
+// --- Helper: Clear Cache ---
+const clearCache = async () => {
+    if (redisClient.isOpen) {
+        await redisClient.del('notes_list');
+    }
+};
+
+// --- CRUD Routes ---
+
+// GET: Fetch all notes (with Redis caching)
+app.get('/api/notes', async (req, res) => {
     try {
-        const data = fs.readFileSync(DATA_FILE, 'utf8');
-        res.json(JSON.parse(data));
+        const cachedNotes = await redisClient.get('notes_list');
+        if (cachedNotes) {
+            return res.json(JSON.parse(cachedNotes));
+        }
+
+        const result = await pool.query('SELECT * FROM notes ORDER BY created_at DESC');
+        // Cache for 1 hour (3600 seconds)
+        await redisClient.setEx('notes_list', 3600, JSON.stringify(result.rows));
+        res.json(result.rows);
     } catch (err) {
-        console.error("Error reading notes:", err);
-        res.status(500).json({ error: "Could not read notes" });
+        res.status(500).json({ error: err.message });
     }
 });
 
-// Save a note
-app.post('/api/notes', (req, res) => {
+// POST: Create note
+app.post('/api/notes', async (req, res) => {
     try {
-        const data = fs.readFileSync(DATA_FILE, 'utf8');
-        const notes = JSON.parse(data);
-        const newNote = { id: Date.now(), text: req.body.text };
-        notes.push(newNote);
-        fs.writeFileSync(DATA_FILE, JSON.stringify(notes, null, 2));
-        res.status(201).json(newNote);
+        const { text } = req.body;
+        const result = await pool.query('INSERT INTO notes (text) VALUES ($1) RETURNING *', [text]);
+        await clearCache();
+        res.status(201).json(result.rows[0]);
     } catch (err) {
-        console.error("Error saving note:", err);
-        res.status(500).json({ error: "Could not save note" });
+        res.status(500).json({ error: err.message });
     }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// PUT: Update note
+app.put('/api/notes/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { text } = req.body;
+        await pool.query('UPDATE notes SET text = $1 WHERE id = $2', [text, id]);
+        await clearCache();
+        res.json({ message: "Updated successfully" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
-// replace db with postgres and also include redis for caching
+// DELETE: Remove note
+app.delete('/api/notes/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM notes WHERE id = $1', [id]);
+        await clearCache();
+        res.json({ message: "Deleted successfully" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- Server Startup Logic ---
+const startServer = async () => {
+    try {
+        // 1. Connect to Redis first
+        await redisClient.connect();
+        console.log('✅ Connected to Redis');
+
+        // 2. Initialize Postgres Table
+        await initDb();
+        console.log('✅ Database tables initialized');
+
+        // 3. Start listening for requests
+        app.listen(PORT, () => console.log(`🚀 Pro Server running on port ${PORT}`));
+    } catch (err) {
+        console.error('❌ Failed to connect to dependencies:', err.message);
+        process.exit(1);
+    }
+};
+
+startServer();

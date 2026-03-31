@@ -1,18 +1,42 @@
 services:
+  # redis container
+  redis:
+    image: redis:8.6.2
+    expose:
+      - "6379"
+  
+  # postgres container
+  postgres-db:
+    image: postgres:18.3
+    expose:
+      - "5432"
+  
+  # backend api container
   express-api:
-    build: ./backend # build expressjs api image using the Dockerfile in the backend folder
-    ports:
-      - 5000:5000
-    volumes:
-      - all-notes:/notes-app-backend/data/
-
-  react_build_app:
     depends_on:
-      - express-api # run the backend API first
-    build: ./frontend # build react app image using Dockerfile in frontend folder
-    ports:
-      - 3000:3000
+      - postgres-db
+      - redis
+    build: ./backend
+    expose:
+      - "5000"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://localhost:6379 # use redis container hostname
+      - DB_USER=postgres
+      - DB_NAME=notes_db
+      - DB_HOST=localhost
+      - DB_PORT=5432
+    secrets:
+      - database-password
 
-# volumes registry: all docker managed named volumes here
-volumes:
-  all-notes:
+  # react build container
+  react-build-frontend:
+    depends_on:
+      - express-api
+    build: ./frontend
+    ports:
+      - "3006:3000"
+
+secrets:
+  database-password:
+    file: ./db-password.txt
