@@ -10,12 +10,14 @@ services:
     image: postgres:18.3
     expose:
       - 5432
-    environment:
+    environment: # must have postgres env variables to initialize postgres database
       POSTGRES_USER: user1
       POSTGRES_DB: notes_db
       POSTGRES_PASSWORD_FILE: /run/secrets/database_password
     secrets:
       - database_password
+    volumes: # persistent volume
+      - all-notes-data:/var/lib/postgresql
   
   # backend api container
   express_api:
@@ -47,3 +49,6 @@ services:
 secrets:
   database_password:
     file: ./db-password.txt
+
+volumes:
+  all-notes-data:
