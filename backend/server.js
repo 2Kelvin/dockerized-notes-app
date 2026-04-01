@@ -2,6 +2,8 @@ const express = require('express');
 const { Pool } = require('pg');
 const redis = require('redis');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -11,24 +13,47 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Function to read secret from Docker
+const getDatabasePassword = () => {
+    const secretPath = '/run/secrets/database_password';
+    if (fs.existsSync(secretPath)) {
+        return fs.readFileSync(secretPath, 'utf8').trim();
+    }
+    return process.env.DB_PASSWORD; // Fallback for local testing
+};
+
 // 1. Postgres Setup
 const pool = new Pool({
     user: process.env.DB_USER,
     host: process.env.DB_HOST,
     database: process.env.DB_NAME,
-    password: process.env.DB_PASSWORD,
+    password: getDatabasePassword(),
     port: process.env.DB_PORT,
 });
 
-// Helper to initialize table
 const initDb = async () => {
-    await pool.query(`
-    CREATE TABLE IF NOT EXISTS notes (
-      id SERIAL PRIMARY KEY,
-      text TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
+    let connected = false;
+    let attempts = 5;
+
+    while (!connected && attempts > 0) {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS notes (
+                  id SERIAL PRIMARY KEY,
+                  text TEXT NOT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+            connected = true;
+            console.log('✅ Database tables initialized');
+        } catch (err) {
+            attempts--;
+            console.log(`⚠️ Database not ready... retrying (${attempts} attempts left)`);
+            await new Promise(res => setTimeout(res, 5000)); // Wait 5 seconds
+        }
+    }
+
+    if (!connected) throw new Error("Could not connect to Postgres after multiple attempts");
 };
 
 // 2. Redis Setup
@@ -112,8 +137,7 @@ const startServer = async () => {
         // 3. Start listening for requests
         app.listen(PORT, () => console.log(`🚀 Pro Server running on port ${PORT}`));
     } catch (err) {
-        console.error('❌ Failed to connect to dependencies:', err.message);
-        process.exit(1);
+        console.error('❌ CRITICAL STARTUP ERROR:', err);
     }
 };
 

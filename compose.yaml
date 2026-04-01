@@ -3,40 +3,47 @@ services:
   redis:
     image: redis:8.6.2
     expose:
-      - "6379"
+      - 6379
   
   # postgres container
-  postgres-db:
+  postgres_db:
     image: postgres:18.3
     expose:
-      - "5432"
+      - 5432
+    environment:
+      POSTGRES_USER: user1
+      POSTGRES_DB: notes_db
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - database_password
   
   # backend api container
-  express-api:
+  express_api:
     depends_on:
-      - postgres-db
+      - postgres_db
       - redis
     build: ./backend
-    expose:
-      - "5000"
+    ports:
+      - "5000:5000"
     environment:
-      - NODE_ENV=production
-      - REDIS_URL=redis://localhost:6379 # use redis container hostname
-      - DB_USER=postgres
-      - DB_NAME=notes_db
-      - DB_HOST=localhost
-      - DB_PORT=5432
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      DB_USER: user1
+      DB_NAME: notes_db
+      DB_HOST: postgres_db
+      DB_PORT: 5432
+      DB_PASSWORD: /run/secrets/database_password
     secrets:
-      - database-password
+      - database_password
 
   # react build container
   react-build-frontend:
     depends_on:
-      - express-api
+      - express_api
     build: ./frontend
     ports:
-      - "3006:3000"
+      - "3000:3000"
 
 secrets:
-  database-password:
+  database_password:
     file: ./db-password.txt
