@@ -67,10 +67,7 @@ Run this command to build and start the entire app stack:
 docker compose up -d --build
 ```
 
-The application will be live and available at:
-
-- **Frontend**: `http://localhost:8080`
-- **Backend API**: `http://localhost:5000`
+The application will be live and available at `http://localhost:8080`
 
 ## Tear down
 
